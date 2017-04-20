@@ -3,10 +3,40 @@
 	"ignore": "test",
 	"package": [
 		{
+			"checksumSHA1": "2UmMbNHc8FBr98mJFN1k8ISOIHk=",
+			"path": "github.com/garyburd/redigo/internal",
+			"revision": "b8dc90050f24c1a73a52f107f3f575be67b21b7c",
+			"revisionTime": "2016-05-25T16:57:06Z"
+		},
+		{
 			"checksumSHA1": "507OiSqTxfGCje7xDT5eq9CCaNQ=",
 			"path": "github.com/garyburd/redigo/redis",
 			"revision": "b8dc90050f24c1a73a52f107f3f575be67b21b7c",
 			"revisionTime": "2016-05-25T16:57:06Z"
+		},
+		{
+			"checksumSHA1": "mZK+4q1Xr8z0AwkCAgO+7Rb8xk8=",
+			"path": "github.com/julienschmidt/httprouter",
+			"revision": "77366a47451a56bb3ba682481eed85b64fea14e8",
+			"revisionTime": "2016-02-19T15:40:26Z"
+		},
+		{
+			"checksumSHA1": "e+1BYI9y5LUyfSC+lwQF0AXP5sA=",
+			"path": "github.com/lib/pq",
+			"revision": "5bf161122cd640c2a5a2c1d7fa49ea9befff31dd",
+			"revisionTime": "2016-12-20T09:00:36Z"
+		},
+		{
+			"checksumSHA1": "xppHi82MLqVx1eyQmbhTesAEjx8=",
+			"path": "github.com/lib/pq/oid",
+			"revision": "5bf161122cd640c2a5a2c1d7fa49ea9befff31dd",
+			"revisionTime": "2016-12-20T09:00:36Z"
+		},
+		{
+			"checksumSHA1": "1myjT8gKwUI3WNE5a/85jNPL8Fo=",
+			"path": "github.com/satori/go.uuid",
+			"revision": "879c5887cd475cd7864858769793b2ceb0d44feb",
+			"revisionTime": "2016-06-07T14:43:47Z"
 		}
 	],
 	"rootPath": "github.com/TeamTrumpet/pads"
