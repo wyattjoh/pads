@@ -2,7 +2,8 @@ package main
 
 import (
 	"encoding/json"
-	"log"
+	"flag"
+	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
@@ -10,6 +11,7 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/ardanlabs/kit/log"
 	"github.com/julienschmidt/httprouter"
 )
 
@@ -80,24 +82,26 @@ func ShowAdJSEndpoint(s *Store) httprouter.Handle {
 	// Create a new template and parse the letter into it.
 	t := template.Must(template.New("script").Parse(ScriptTemplate))
 
-	return httprouter.Handle(func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
-		rw.Header().Set("Access-Control-Allow-Origin", "*")
-		rw.Header().Set("Content-Type", "text/javascript")
-		rw.Header().Set("Keep-Alive", "timeout=5, max=100")
-		rw.Header().Set("Connection", "Keep-Alive")
+	return httprouter.Handle(func(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Content-Type", "text/javascript")
+		w.Header().Set("Keep-Alive", "timeout=5, max=100")
+		w.Header().Set("Connection", "Keep-Alive")
 
 		ad, err := s.GetRandomAd()
 		if err != nil {
 			if err == ErrNotFound {
-				rw.WriteHeader(404)
+				http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
 				return
 			}
 
-			panic(err)
+			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			return
 		}
 
-		if err := t.Execute(rw, ad); err != nil {
-			panic(err)
+		if err := t.Execute(w, ad); err != nil {
+			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			return
 		}
 	})
 }
@@ -107,92 +111,101 @@ func ShowAdHTMLEndpoint(s *Store) httprouter.Handle {
 	// Create a new template and parse the letter into it.
 	t := template.Must(template.New("html").Parse(HTMLTemplate))
 
-	return httprouter.Handle(func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
-		rw.Header().Set("Access-Control-Allow-Origin", "*")
-		rw.Header().Set("Content-Type", "text/html")
-		rw.Header().Set("Keep-Alive", "timeout=5, max=100")
-		rw.Header().Set("Connection", "Keep-Alive")
+	return httprouter.Handle(func(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Content-Type", "text/html")
+		w.Header().Set("Keep-Alive", "timeout=5, max=100")
+		w.Header().Set("Connection", "Keep-Alive")
 
 		ad, err := s.GetRandomAd()
 		if err != nil {
 			if err == ErrNotFound {
-				rw.WriteHeader(404)
+				http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
 				return
 			}
 
-			panic(err)
+			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			return
 		}
 
-		if err := t.Execute(rw, ad); err != nil {
-			panic(err)
+		if err := t.Execute(w, ad); err != nil {
+			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			return
 		}
 	})
 }
 
 // ShowAdJSONEndpoint serves the advertisement via json
 func ShowAdJSONEndpoint(s *Store) httprouter.Handle {
-	return httprouter.Handle(func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
-		rw.Header().Set("Access-Control-Allow-Origin", "*")
-		rw.Header().Set("Content-Type", "application/json")
-		rw.Header().Set("Keep-Alive", "timeout=5, max=100")
-		rw.Header().Set("Connection", "Keep-Alive")
+	return httprouter.Handle(func(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Keep-Alive", "timeout=5, max=100")
+		w.Header().Set("Connection", "Keep-Alive")
 
 		ad, err := s.GetRandomAd()
 		if err != nil {
 			if err == ErrNotFound {
-				rw.WriteHeader(404)
+				http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
 				return
 			}
 
-			panic(err)
+			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			return
 		}
 
-		if err := json.NewEncoder(rw).Encode(ad); err != nil {
-			panic(err)
+		if err := json.NewEncoder(w).Encode(ad); err != nil {
+			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			return
 		}
 	})
 }
 
 // CreateAdEndpoint creates a new ad.
 func CreateAdEndpoint(s *Store) httprouter.Handle {
-	return httprouter.Handle(func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
-		rw.Header().Set("Access-Control-Allow-Origin", "*")
-		rw.Header().Set("Content-Type", "application/json")
+	return httprouter.Handle(func(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Content-Type", "application/json")
 
 		var ad Ad
 		if err := json.NewDecoder(r.Body).Decode(&ad); err != nil {
-			panic(err)
+			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			return
 		}
 
 		if err := s.CreateAd(&ad); err != nil {
-			panic(err)
+			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			return
 		}
 
-		if err := json.NewEncoder(rw).Encode(ad); err != nil {
-			panic(err)
+		if err := json.NewEncoder(w).Encode(ad); err != nil {
+			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			return
 		}
 	})
 }
 
 // RetrieveAdsEndpoint lists the ads in the system
 func RetrieveAdsEndpoint(s *Store) httprouter.Handle {
-	return httprouter.Handle(func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
-		rw.Header().Set("Access-Control-Allow-Origin", "*")
-		rw.Header().Set("Content-Type", "application/json")
+	return httprouter.Handle(func(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Content-Type", "application/json")
 
 		ads, err := s.RetrieveAds()
 		if err != nil {
-			panic(err)
+			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			return
 		}
 
-		if err := json.NewEncoder(rw).Encode(ads); err != nil {
-			panic(err)
+		if err := json.NewEncoder(w).Encode(ads); err != nil {
+			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			return
 		}
 	})
 }
 
 // StartServer starts up the http server.
-func StartServer(s *Store) {
+func StartServer(host, port string, s *Store) {
 	mux := httprouter.New()
 
 	mux.GET("/ad.js", ShowAdJSEndpoint(s))
@@ -203,11 +216,13 @@ func StartServer(s *Store) {
 	mux.POST("/api/v1/advertisement", CreateAdEndpoint(s))
 	mux.GET("/api/v1/advertisement", RetrieveAdsEndpoint(s))
 
-	log.Println("Listening on :8080")
+	bind := fmt.Sprintf("%s:%s", host, port)
+
+	log.User("main", "StartServer", "Listening on %s", bind)
 
 	go func() {
-		if err := http.ListenAndServe(":8080", mux); err != nil {
-			panic(err)
+		if err := http.ListenAndServe(bind, mux); err != nil {
+			log.Fatal("main", "cannot listen and serve: %s", err.Error())
 		}
 	}()
 }
@@ -221,12 +236,12 @@ func StartStoreProcessor(s *Store) {
 
 // StopStoreProcessor will halt all processing on the processing channels.
 func StopStoreProcessor(s *Store) {
-	log.Println("Shutdown started")
+	log.Dev("main", "StopStoreProcessor", "Started")
 
 	// close down the store.
 	s.Close()
 
-	log.Println("Shutdown reached.")
+	log.Dev("main", "StopStoreProcessor", "Finished")
 }
 
 // StartSmartShutdown will wait until an inturrupt is issued and then shutdown
@@ -236,27 +251,44 @@ func StartSmartShutdown(s *Store) {
 	signal.Notify(c, os.Interrupt)
 	signal.Notify(c, syscall.SIGTERM)
 
-	// this will wait until an inturrupt or a sigterm is caught
+	// this will wait until an interrupt or a sigterm is caught
 	<-c
 }
 
 func main() {
-	// log.SetOutput(ioutil.Discard)
+	postgresURL := flag.String("postgres", "postgres://postgres:mysecretpassword@localhost:32768/postgres?sslmode=disable", "the url including auth for the postgres server")
+	redisURL := flag.String("redis", "redis://127.0.0.1:6379", "the url including auth for the redis server")
+	verbose := flag.Bool("verbose", false, "enable verbose logging")
+	host := flag.String("host", "127.0.0.1", "host to listen on")
+	port := flag.String("port", "8080", "port number to listen on")
 
-	s := NewStore()
-	defer StopStoreProcessor(s)
+	flag.Parse()
 
-	err := s.RebuildSelector()
+	log.Init(os.Stderr, func() int {
+		if *verbose {
+			return log.DEV
+		}
+
+		return log.USER
+	}, log.Ldefault)
+
+	store, err := NewStore(*postgresURL, *redisURL)
 	if err != nil {
-		panic(err)
+		log.Fatal("main", "cannot create the store: %s", err.Error())
+	}
+
+	defer StopStoreProcessor(store)
+
+	if err := store.RebuildSelector(); err != nil {
+		log.Fatal("main", "cannot rebuild the selector: %s", err.Error())
 	}
 
 	// start up the store's workers
-	StartStoreProcessor(s)
+	StartStoreProcessor(store)
 
 	// setup the http server
-	StartServer(s)
+	StartServer(*host, *port, store)
 
 	// setup the smart shutdown
-	StartSmartShutdown(s)
+	StartSmartShutdown(store)
 }

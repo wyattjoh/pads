@@ -3,14 +3,15 @@ package main
 import (
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"log"
 	"math/rand"
+	"net/url"
 	"time"
 
+	"github.com/ardanlabs/kit/log"
 	"github.com/garyburd/redigo/redis"
 	_ "github.com/lib/pq"
+	"github.com/pkg/errors"
 	"github.com/satori/go.uuid"
 )
 
@@ -40,33 +41,42 @@ CREATE TABLE IF NOT EXISTS impression(
 `
 
 // newDB creates a new database handle.
-func newDB(path string) *sql.DB {
+func newDB(path string) (*sql.DB, error) {
 	db, err := sql.Open("postgres", path)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 
 	_, err = db.Exec(SetupDBStmt)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 
-	return db
+	return db, nil
 }
 
-func newPool(server, password string) *redis.Pool {
-	return &redis.Pool{
+func newPool(addr string) (*redis.Pool, error) {
+	u, err := url.Parse(addr)
+	if err != nil {
+		return nil, err
+	}
+
+	pool := redis.Pool{
 		MaxIdle:     3,
 		IdleTimeout: 240 * time.Second,
 		Dial: func() (redis.Conn, error) {
-			c, err := redis.Dial("tcp", server)
+			c, err := redis.Dial("tcp", u.Host)
 			if err != nil {
 				return nil, err
 			}
-			if password != "" {
-				if _, err = c.Do("AUTH", password); err != nil {
-					c.Close()
-					return nil, err
+			if u.User != nil {
+				password, ok := u.User.Password()
+
+				if ok {
+					if _, err = c.Do("AUTH", password); err != nil {
+						c.Close()
+						return nil, err
+					}
 				}
 			}
 			return c, err
@@ -76,17 +86,34 @@ func newPool(server, password string) *redis.Pool {
 			return err
 		},
 	}
+
+	con := pool.Get()
+	defer con.Close()
+
+	if _, err := con.Do("PING"); err != nil {
+		return nil, err
+	}
+
+	return &pool, nil
 }
 
 // NewStore creates a new store
-func NewStore() *Store {
-	p := newPool("127.0.0.1:6379", "")
+func NewStore(postgresURL, redisURL string) (*Store, error) {
+	pool, err := newPool(redisURL)
+	if err != nil {
+		return nil, errors.Wrap(err, "cannot connect to redis")
+	}
+
+	db, err := newDB(postgresURL)
+	if err != nil {
+		return nil, errors.Wrap(err, "cannot connect to postgres")
+	}
 
 	return &Store{
-		db:       newDB("postgres://postgres:mysecretpassword@localhost:32768/postgres?sslmode=disable"),
-		rds:      p,
-		dispatch: NewDispatch(p),
-	}
+		db:       db,
+		rds:      pool,
+		dispatch: NewDispatch(pool),
+	}, nil
 }
 
 // Store holds references to all the databases that we need.
@@ -122,40 +149,47 @@ func (s *Store) ProcessSubscribe() error {
 	con := s.rds.Get()
 	defer con.Close()
 
-	log.Println("impression_writer: active")
+	log.Dev("main", "ProcessSubscribe", "Started")
 
 	for {
-		replies, err := redis.Values(con.Do("BLPOP", "impressions", 0))
-		if err != nil {
-			log.Printf("impression_writer: error: %s\n", err.Error())
-			return err
+		select {
+		case <-time.After(1 * time.Millisecond):
+			replies, err := redis.Values(con.Do("BLPOP", "impressions", 1))
+			if err != nil {
+				if err == redis.ErrNil {
+					continue
+				}
+
+				log.Error("main", "ProcessSubscribe", err, "could not pop the job")
+				continue
+			}
+
+			log.Dev("main", "ProcessSubscribe", "impression_writer: got a impression")
+
+			var reply []byte
+			_, err = redis.Scan(replies, nil, &reply)
+			if err != nil {
+				log.Error("main", "ProcessSubscribe", err, "could scan the job details")
+				continue
+			}
+
+			var i Impression
+			err = json.Unmarshal(reply, &i)
+			if err != nil {
+				log.Error("main", "ProcessSubscribe", err, "could not unmarshal the job")
+				continue
+			}
+
+			log.Dev("main", "ProcessSubscribe", "impression_writer: recording %s", i.ID)
+
+			err = s.RecordImpression(con, &i)
+			if err != nil {
+				log.Error("main", "ProcessSubscribe", err, "could not record the impression")
+				continue
+			}
+
+			log.Dev("main", "ProcessSubscribe", "impression_writer: recorded %s", i.ID)
 		}
-
-		log.Printf("impression_writer: got a impression\n")
-
-		var reply []byte
-		_, err = redis.Scan(replies, nil, &reply)
-		if err != nil {
-			log.Printf("impression_writer: error: %s\n", err.Error())
-			return err
-		}
-
-		var i Impression
-		err = json.Unmarshal(reply, &i)
-		if err != nil {
-			log.Printf("impression_writer: error: %s\n", err.Error())
-			return err
-		}
-
-		log.Printf("impression_writer: recording %s\n", i.ID)
-
-		err = s.RecordImpression(con, &i)
-		if err != nil {
-			log.Printf("impression_writer: error: %s\n", err.Error())
-			return err
-		}
-
-		log.Printf("impression_writer: recorded %s\n", i.ID)
 	}
 }
 
@@ -318,10 +352,11 @@ func (s *Store) rebuildSelector(con redis.Conn) error {
 		return err
 	}
 
-	if err := con.Send("DEL", "ADS"); err != nil {
-		return err
-	}
+	// Create a pipeline transaction for the update operation.
+	con.Send("MULTI")
+	con.Send("DEL", "ADS")
 
+	// Compile the scores as we go.
 	var score float64
 	for _, ad := range ads {
 		score += float64(ad.Weight) / weightTotal
@@ -337,7 +372,8 @@ func (s *Store) rebuildSelector(con redis.Conn) error {
 		}
 	}
 
-	if err := con.Flush(); err != nil {
+	// Execute the transaction.
+	if _, err := con.Do("EXEC"); err != nil {
 		return err
 	}
 
