@@ -13,6 +13,7 @@ import (
 
 	"github.com/ardanlabs/kit/log"
 	"github.com/julienschmidt/httprouter"
+	"github.com/pborman/uuid"
 )
 
 // ScriptTemplate is the template for the script to send to the client via the
@@ -204,17 +205,39 @@ func RetrieveAdsEndpoint(s *Store) httprouter.Handle {
 	})
 }
 
+func NewHandler(next httprouter.Handle) httprouter.Handle {
+	return httprouter.Handle(func(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		traceID := uuid.New()
+		start := time.Now()
+
+		next(w, r, p)
+
+		if query := r.URL.Query().Encode(); query == "" {
+			log.User(traceID, "NewHandler", "%s %s -> %s (%s)",
+				r.Method, r.URL.Path,
+				r.RemoteAddr, time.Since(start),
+			)
+		} else {
+			log.User(traceID, "NewHandler", "%s %s?%s -> %s (%s)",
+				r.Method, r.URL.Path,
+				query,
+				r.RemoteAddr, time.Since(start),
+			)
+		}
+	})
+}
+
 // StartServer starts up the http server.
 func StartServer(host, port string, s *Store) {
 	mux := httprouter.New()
 
-	mux.GET("/ad.js", ShowAdJSEndpoint(s))
-	mux.GET("/ad.json", ShowAdJSONEndpoint(s))
-	mux.GET("/ad.html", ShowAdHTMLEndpoint(s))
-	mux.GET("/ad", ShowAdHTMLEndpoint(s))
+	mux.GET("/ad.js", NewHandler(ShowAdJSEndpoint(s)))
+	mux.GET("/ad.json", NewHandler(ShowAdJSONEndpoint(s)))
+	mux.GET("/ad.html", NewHandler(ShowAdHTMLEndpoint(s)))
+	mux.GET("/ad", NewHandler(ShowAdHTMLEndpoint(s)))
 
-	mux.POST("/api/v1/advertisement", CreateAdEndpoint(s))
-	mux.GET("/api/v1/advertisement", RetrieveAdsEndpoint(s))
+	mux.POST("/api/v1/advertisement", NewHandler(CreateAdEndpoint(s)))
+	mux.GET("/api/v1/advertisement", NewHandler(RetrieveAdsEndpoint(s)))
 
 	bind := fmt.Sprintf("%s:%s", host, port)
 

@@ -144,6 +144,38 @@ func (s *Store) Close() {
 	s.db.Close()
 }
 
+// ProcessJobQueue will get a job off the queue or return an error.
+func (s *Store) ProcessJobQueue(con redis.Conn) error {
+	replies, err := redis.Values(con.Do("LPOP", "impressions"))
+	if err != nil {
+		return errors.Wrap(err, "could not pop the job")
+	}
+
+	log.Dev("main", "ProcessSubscribe", "got a impression")
+
+	var reply []byte
+	_, err = redis.Scan(replies, nil, &reply)
+	if err != nil {
+		return errors.Wrap(err, "could scan the job details")
+	}
+
+	var i Impression
+	err = json.Unmarshal(reply, &i)
+	if err != nil {
+		return errors.Wrap(err, "could not unmarshal the job")
+	}
+
+	log.Dev("main", "ProcessSubscribe", "recording %s", i.ID)
+
+	err = s.RecordImpression(con, &i)
+	if err != nil {
+		return errors.Wrap(err, "could not record the impression")
+	}
+
+	log.Dev("main", "ProcessSubscribe", "recorded %s", i.ID)
+	return nil
+}
+
 // ProcessSubscribe processes the impression data and persists it to disk.
 func (s *Store) ProcessSubscribe() error {
 	con := s.rds.Get()
@@ -152,44 +184,22 @@ func (s *Store) ProcessSubscribe() error {
 	log.Dev("main", "ProcessSubscribe", "Started")
 
 	for {
-		select {
-		case <-time.After(1 * time.Millisecond):
-			replies, err := redis.Values(con.Do("BLPOP", "impressions", 1))
-			if err != nil {
-				if err == redis.ErrNil {
-					continue
+
+		// Process all the jobs in the queue until it's empty.
+		for {
+			if err := s.ProcessJobQueue(con); err != nil {
+				if errors.Cause(err) == redis.ErrNil {
+					log.Dev("main", "ProcessSubscribe", "list empty")
+					break
 				}
 
-				log.Error("main", "ProcessSubscribe", err, "could not pop the job")
-				continue
+				return err
 			}
-
-			log.Dev("main", "ProcessSubscribe", "impression_writer: got a impression")
-
-			var reply []byte
-			_, err = redis.Scan(replies, nil, &reply)
-			if err != nil {
-				log.Error("main", "ProcessSubscribe", err, "could scan the job details")
-				continue
-			}
-
-			var i Impression
-			err = json.Unmarshal(reply, &i)
-			if err != nil {
-				log.Error("main", "ProcessSubscribe", err, "could not unmarshal the job")
-				continue
-			}
-
-			log.Dev("main", "ProcessSubscribe", "impression_writer: recording %s", i.ID)
-
-			err = s.RecordImpression(con, &i)
-			if err != nil {
-				log.Error("main", "ProcessSubscribe", err, "could not record the impression")
-				continue
-			}
-
-			log.Dev("main", "ProcessSubscribe", "impression_writer: recorded %s", i.ID)
 		}
+
+		// Job queue was empty, sleep for 2 seconds after we tried to get the last
+		// impression.
+		time.Sleep(2 * time.Second)
 	}
 }
 
